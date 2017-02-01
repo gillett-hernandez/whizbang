@@ -1,91 +1,15 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-# @File Name: threepass.py
+# @File Name: threepass_for_codewars.py
 # @Author: Copyright (c) 2017-01-28 01:03:16 gilletthernandez
 # @Date:   2017-01-28 01:03:16
 # @Last Modified by:   Gillett Hernandez
-# @Last Modified time: 2017-01-31 18:58:12
-
-# language syntax:
-#
-#
-# function   ::= '[' arg-list ']' expression
-#
-# arg-list   ::= /* nothing */
-#              | arg-list variable
-#
-# expression ::= term
-#              | expression '+' term
-#              | expression '-' term
-#
-# term       ::= factor
-#              | term '*' factor
-#              | term '/' factor
-#
-# factor     ::= number
-#              | variable
-#              | '(' expression ')'
-# variable   ::= [a-zA-Z]+
-# number     ::= [0-9]+
-
-# numbers and variables are marked by the tokenize function
-
-# asm opcodes:
-# IM
-# AR
-# SW
-# PU
-# PO
-# AD
-# SU
-# MU
-# DI
-
-# example
-# [ a b ] a*a + b*b
-
-# {
-#     'op':'+',
-#     'a': {
-#         'op':'*',
-#         'a': {
-#             'op':'arg',
-#             'n': 'a'
-#         },
-#         'b': {
-#             'op':'arg',
-#             'n': 'a'
-#         }
-#     },
-#     'b': {
-#         'op':'*',
-#         'a': {
-#             'op':'arg',
-#             'n': 'b'
-#         },
-#         'b': {
-#             'op':'arg',
-#             'n': 'b'
-#         }
-#     }
-# }
-
-# no optimizations, # instructions = 23
-# ['AR0', 'PU', 'AR0', 'PU', 'PO', 'SW', 'PO', 'MU', 'PU', 'AR1', 'PU', 'AR1', 'PU', 'PO' 'SW', 'PO', 'MU', 'PU', 'PO', 'SW', 'PO', 'AD', 'PU']
-
-# 2 optimizations types, # instructions = 17
-# ['AR0', 'PU', 'AR0', 'SW', 'PO', 'MU', 'PU', 'AR1', 'PU', 'AR1', 'SW', 'PO', 'MU', 'SW', 'PO', 'AD', 'PU']
-
-# 3 optimizations types, # instructions = 15
-# ['AR0', 'SW', 'AR0', 'SW', 'MU', 'PU', 'AR1', 'SW', 'AR1', 'SW', 'MU', 'SW', 'PO', 'AD', 'PU']
-
-# hand written, # instructions = 13
-# ['AR0', 'SW', 'AR0', 'MU', 'PU', 'AR1', 'SW', 'AR1', 'MU', 'SW', 'PO', 'AD', 'PU']
+# @Last Modified time: 2017-01-31 18:23:08
 
 import re
 
 global debug
-debug = True
+debug = False
 
 OP = "OP"
 CP = "CP"
@@ -125,6 +49,26 @@ class Node(object):
     def __str__(self):
         return str(self.token)
 
+    def todict(self):
+        base = {"op":self.op}
+        if hasattr(self, "n"):
+            base["n"] = self.n
+        else:
+            base["a"] = self.a.todict()
+            base["b"] = self.b.todict()
+        return base
+
+    @staticmethod
+    def fromdict(dict):
+        if "n" in dict:
+            if dict["op"] == ARG:
+                node = Arg(dict["n"])
+            else:
+                node = Const(dict["n"])
+        else:
+            node = Op(dict["op"], Node.fromdict(dict["a"]), Node.fromdict(dict["b"]))
+        return node
+
 class Const(Node):
     __slots__ = ['n']
     def __init__(self, n):
@@ -146,7 +90,7 @@ class Op(Node):
 
 class Compiler(object):
     def compile(self, code):
-        return self.pass4(self.pass3(self.pass2(self.pass1(code))))
+        return self.pass3(self.pass2(self._pass1(code)))
 
     def tokenizer(self, code):
         """Turn a code string into an array of tokens.  Each token
@@ -189,7 +133,7 @@ class Compiler(object):
         if debug: print("arglist done, ast parsing")
         ast = self.parse_expression(tokens)
         if debug: print("ast parsing done")
-        return ast
+        return ast.todict()
 
     def parse_arglist(self, tokens):
         if debug: print("parse arglist", [str(t) for t in tokens])
@@ -308,7 +252,7 @@ class Compiler(object):
         else:
             raise RuntimeError("parse error in parse factor")
 
-    def pass2(self, ast):
+    def _pass2(self, ast):
         """Returns an AST with constant expressions reduced"""
         # ast is root node of AST and any operators with only constants on both sides need to be reduced
         # CTFE/CTE
@@ -316,14 +260,19 @@ class Compiler(object):
         if debug: print("subcall")
         if ast.op not in [IMM, ARG]:
             # subcalls in case of nested constants
-            ast.a = self.pass2(ast.a)
-            ast.b = self.pass2(ast.b)
+            ast.a = self._pass2(ast.a)
+            ast.b = self._pass2(ast.b)
             # transformations in case they were resolved
             ast.a = self.transformer(ast.a)
             ast.b = self.transformer(ast.b)
             # additional transformation in case self was resolved
             ast = self.transformer(ast)
         return ast
+
+    def pass2(self, ast):
+        if not isinstance(ast, Node):
+            ast = Node.fromdict(ast)
+        return self._pass2(ast).todict()
 
     @staticmethod
     def transformer(node):
@@ -333,6 +282,8 @@ class Compiler(object):
         return node
 
     def pass3(self, ast):
+        if not isinstance(ast, Node):
+            ast = Node.fromdict(ast)
         """Returns assembly instructions"""
         instructions = []
         # entire call either loads and pushes on to stack
@@ -357,53 +308,6 @@ class Compiler(object):
             instructions.append("PU")
         return instructions
 
-    def pass4(self, asm):
-        """optimizes assembly instructions"""
-        # discards PU PO combinations and PO PU combinations
-        # discards SW SW combinations
-        def mutator1(asm):
-            i = 0
-            while i+1 < len(asm):
-                if (asm[i], asm[i+1]) in [("PO", "PU"), ("PU", "PO")]:
-                    del asm[i:i+2]
-                i += 1
-            return asm
-
-        def mutator2(asm):
-            i = 0
-            while i+1 < len(asm):
-                if (asm[i], asm[i+1]) in ("SW", "SW"):
-                    del asm[i:i+2]
-                i += 1
-            return asm
-
-        def mutator3(asm):
-            i = 0
-            while i+3 < len(asm):
-                if asm[i] == "PU" and asm[i+1][:2] in ["AR", "IM"] and asm[i+2] == "SW" and asm[i+3] == "PO":
-                    asm[i:i+4] = ["SW", asm[i+1], "SW"]
-                i += 1
-            return asm
-
-        L = [mutator1, mutator2, mutator3]
-        num_mutators = len(L)
-        orig_len = len(asm)
-        print(asm)
-        last_asm = asm[:]
-        asm = L[0](asm)
-        i = 1
-        while i != 0 or last_asm != asm:
-            if i == 0:
-                last_asm = asm[:]
-            asm = L[i](asm)
-            i += 1
-            i %= num_mutators
-        print("optimizations cut {} instructions".format(orig_len - len(asm)))
-        return asm
-
-
-
-
 
 def simulate(asm, argv):
     r0, r1 = None, None
@@ -423,23 +327,28 @@ def simulate(asm, argv):
         elif ins == 'DI': r0 /= r1
     return r0
 
+
 def main():
     testcode1 = "[ a b ] a * a + b * b"
     # testcode2 = "[ a b ] (a + b) / 2"
     # testcode3 = "[ a b c d ] (a-b)*(c-d)/(2-a)"
     # testcode4 = "[ a b c d ] a*b*c/d"
-    # testcode5 = "[ a b c d ] a/b*c/d"
-    # testcode6 = "[ a ] a / (2 * 5)"
+    # asm = Compiler().compile(testcode1)
+    # print(repr(ast.a))
     asm = Compiler().compile(testcode1)
-    # asm = Compiler().compile(testcode2)
-    # asm = Compiler().compile(testcode3)
-    # asm = Compiler().compile(testcode4)
-    # asm = Compiler().compile(testcode5)
-    # asm = Compiler().compile(testcode6)
     if debug: print(asm)
-    # print(simulate(asm, [5, 7]))
-    # print(simulate(asm, [3, 4]))
-    print(simulate(asm, [3,4,5,6]))
+    # ast = Compiler().compile(testcode3)
+    # print(repr(ast))
+    # ast = Compiler().compile(testcode4)
+    # print(repr(ast))
+    # testcode5 = "[ a b c d ] a/b*c/d"
+    # ast = Compiler().compile(testcode5)
+    # print(repr(ast))
+    # testcode6 = "[ a ] a / (2 * 5)"
+    # ast = Compiler().compile(testcode6)
+    # print(repr(ast))
+    print(simulate(asm, [5, 7]))
+    print(simulate(asm, [3, 4]))
 
 if __name__ == '__main__':
     main()
