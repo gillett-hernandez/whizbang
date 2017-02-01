@@ -4,7 +4,7 @@
 # @Author: Copyright (c) 2017-01-28 01:03:16 gilletthernandez
 # @Date:   2017-01-28 01:03:16
 # @Last Modified by:   Gillett Hernandez
-# @Last Modified time: 2017-01-31 18:58:12
+# @Last Modified time: 2017-01-31 20:06:57
 
 # language syntax:
 #
@@ -31,15 +31,15 @@
 # numbers and variables are marked by the tokenize function
 
 # asm opcodes:
-# IM
-# AR
-# SW
-# PU
-# PO
-# AD
-# SU
-# MU
-# DI
+# IM = immediate n
+# AR = argument n
+# SW = swap r0 and r1
+# PU = push r0 to stack
+# PO = pop value from stack to r0
+# AD = add
+# SU = subtract
+# MU = multiply
+# DI = divide
 
 # example
 # [ a b ] a*a + b*b
@@ -424,22 +424,24 @@ def simulate(asm, argv):
     return r0
 
 def main():
-    testcode1 = "[ a b ] a * a + b * b"
+    # testcode1 = "[ a b ] a * a + b * b"
     # testcode2 = "[ a b ] (a + b) / 2"
     # testcode3 = "[ a b c d ] (a-b)*(c-d)/(2-a)"
     # testcode4 = "[ a b c d ] a*b*c/d"
     # testcode5 = "[ a b c d ] a/b*c/d"
     # testcode6 = "[ a ] a / (2 * 5)"
-    asm = Compiler().compile(testcode1)
+    testcode7 = "[ a b c ] a*b*c"
+    # asm = Compiler().compile(testcode1)
     # asm = Compiler().compile(testcode2)
     # asm = Compiler().compile(testcode3)
     # asm = Compiler().compile(testcode4)
     # asm = Compiler().compile(testcode5)
     # asm = Compiler().compile(testcode6)
+    asm = Compiler().compile(testcode7)
     if debug: print(asm)
     # print(simulate(asm, [5, 7]))
     # print(simulate(asm, [3, 4]))
-    print(simulate(asm, [3,4,5,6]))
+    print(simulate(asm, [2,2,2]))
 
 if __name__ == '__main__':
     main()
