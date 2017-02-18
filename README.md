@@ -2,7 +2,8 @@
 ## Fun and interesting side projects. 
 Current contents:
 
-* Brainf**k interpreter
-* Befunge interpreter  - [BeFunge](http://en.wikipedia.org/Befunge)
-* Lox interpreter - [Crafting Interpreters book](http://craftinginterpreters.com)
+* brainf.py - Brainf**k interpreter
+* befunge.py - Befunge interpreter [BeFunge](http://en.wikipedia.org/Befunge)
+* com.craftinginterpreters - Lox interpreter [Crafting Interpreters book](http://craftinginterpreters.com)
 * threepass.py - mini multipass compiler
+* sparkle.py - Sparkle Interpreter
