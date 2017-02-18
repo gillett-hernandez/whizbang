@@ -1,0 +1,27 @@
+# language grammer
+start      ::= statement*
+
+statement  ::= expression ';'?
+           ::= 'return' expression  ';'?
+           ::= 'let' identifier '=' expression ';'?
+           ::= '{' statement* '}'
+
+expression ::= assignment
+           ::= 'fn' '(' (identifier (',' identifier)*)? ')' '->' statement
+
+assignment ::= additive ('=' expression)*
+
+additive   ::= multiply ( [+-] multiply)*
+
+multiply   ::= postfix ( [*/%] postfix)*
+
+postfix    ::= terminal
+           ::= terminal '(' (expression (',' expression)*)? ')'
+
+terminal   ::= integer
+           ::= identifier
+           ::= '(' expression ')'
+
+integer    ::= [0-9]+
+
+identifier ::= [a-zA-Z_$][a-zA-Z0-9_$]*

@@ -4,7 +4,7 @@
 # @Author: Copyright (c) 2017-01-28 01:03:16 gilletthernandez
 # @Date:   2017-01-28 01:03:16
 # @Last Modified by:   Gillett Hernandez
-# @Last Modified time: 2017-01-31 20:06:57
+# @Last Modified time: 2017-02-09 12:58:51
 
 # language syntax:
 #
@@ -310,6 +310,7 @@ class Compiler(object):
 
     def pass2(self, ast):
         """Returns an AST with constant expressions reduced"""
+        # post order tree traversal
         # ast is root node of AST and any operators with only constants on both sides need to be reduced
         # CTFE/CTE
         # Compile Time Evaluation
@@ -334,6 +335,7 @@ class Compiler(object):
 
     def pass3(self, ast):
         """Returns assembly instructions"""
+        # post order tree traversal
         instructions = []
         # entire call either loads and pushes on to stack
         # or subcalls, pops, swaps, pops, ops, then pushes on to stack
@@ -424,20 +426,23 @@ def simulate(asm, argv):
     return r0
 
 def main():
-    # testcode1 = "[ a b ] a * a + b * b"
+    testcode1 = "[ a b ] a * a + b * b"
     # testcode2 = "[ a b ] (a + b) / 2"
     # testcode3 = "[ a b c d ] (a-b)*(c-d)/(2-a)"
     # testcode4 = "[ a b c d ] a*b*c/d"
     # testcode5 = "[ a b c d ] a/b*c/d"
     # testcode6 = "[ a ] a / (2 * 5)"
-    testcode7 = "[ a b c ] a*b*c"
+    # testcode7 = "[ a b c ] a*b*c"
     # asm = Compiler().compile(testcode1)
     # asm = Compiler().compile(testcode2)
     # asm = Compiler().compile(testcode3)
     # asm = Compiler().compile(testcode4)
     # asm = Compiler().compile(testcode5)
     # asm = Compiler().compile(testcode6)
-    asm = Compiler().compile(testcode7)
+    comp = Compiler()
+    ast = comp.pass1(testcode1)
+    if debug: print(ast)
+    asm = comp.compile(testcode1)
     if debug: print(asm)
     # print(simulate(asm, [5, 7]))
     # print(simulate(asm, [3, 4]))

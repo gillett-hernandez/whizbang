@@ -1,0 +1,40 @@
+>>> return 2*3
+ast = (T.Root
+  (RT (2 T.Times 3))
+)
+
+>>> let x = 10
+>>> return x
+ast = (T.Root
+  ((ID x) = 10)
+  (RT (ID x))
+)
+>>> let x = 10
+>>> let b = 2 * x + 3
+>>> return b * 3
+ast = (T.Root
+  ((ID x) = 10)
+  ((ID b) = ((2 T.Times (ID x)) T.Plus 3))
+  (RT ((ID b) T.Times 3))
+)
+
+>>> let x = 10
+>>> let b = 3 + 2 * x
+>>> return b - 2 * 3
+ast = (T.Root
+  ((ID x) = 10)
+  ((ID b) = (3 T.Plus (2 T.Times (ID x))))
+  (RT ((ID b) T.Minus (2 T.Times 3)))
+)
+
+>>> let f = fn (a, b) -> { return 2 * a + b }
+>>> return f(5, 69)
+ast = (T.Root
+  ((ID f) = (F
+    (L (ID a) (ID b))
+    (T.Block
+      (RT ((2 T.Times (ID a)) T.Plus (ID b)))
+    )
+  ))
+  (RT (<f> 5 69))
+)
