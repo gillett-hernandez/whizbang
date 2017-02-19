@@ -4,14 +4,14 @@
 # @Author: Copyright (c) 2017-02-02 17:31:33 Gillett Hernandez
 # @Date:   2017-02-02 17:31:33
 # @Last Modified by:   Gillett Hernandez
-# @Last Modified time: 2017-02-18 14:09:52
+# @Last Modified time: 2017-02-18 22:40:50
 
 import re
 from enum import Enum
 from collections import OrderedDict, ChainMap
 
 global debug
-debug = True
+debug = False
 
 # token matchers
 token_regexs = (
@@ -197,14 +197,14 @@ class LetStatement(Node):
             return visitor.parenthesize("{} =".format(visitor.tostring(self.identifier)), self.expression)
 
 class Assignment(Node):
-    __slots__ = ['lhs', 'rhss']
-    def __init__(self, lhs=None, rhss=None):
+    __slots__ = ['lhs', 'rhs']
+    def __init__(self, lhs=None, rhs=None):
         super(Assignment, self).__init__(T.Assignment)
         self.lhs = lhs
-        self.rhss = rhss
+        self.rhs = rhs
     def visit(self, visitor):
         if isinstance(visitor, AstPrinter):
-            return visitor.parenthesize(self.op, self.lhs, *self.rhss)
+            return visitor.parenthesize(self.op, self.lhs, self.rhs)
 
 class MultiExpressionNode(Node):
     __slots__ = ['nodes', 'ops']
@@ -242,7 +242,7 @@ class Function(Node):
         self.statements = statements
         # self.internal_name = Function.getid()
     def visit(self, visitor):
-        print("Function visitor called")
+        if debug: print("Function visitor called")
         if isinstance(visitor, AstPrinter):
             return visitor.parenthesize("F", self.arguments, self.statements)
 
@@ -252,7 +252,7 @@ class AstPrinter:
     def tostring(self, expression):
         """handles Root, Block, Multiexpression, anything with attribute 'n',\nanything with attributes ('a', 'b')"""
         if isinstance(expression, Node):
-            print(expression, type(expression), expression.op, expression.token)
+            if debug: print(expression, type(expression), expression.op, expression.token)
             return expression.visit(self)
         elif isinstance(expression, (list, tuple)):
             return self.parenthesize("L", *expression)
@@ -292,7 +292,7 @@ class Parser:
         for retoken in token_iter:
             kind = retoken.lastgroup
             token = retoken.group(kind)
-            print(kind, token)
+            if debug: print(kind, token)
             if token == '' or kind == "Whitespace":
                 continue
             elif token.isdigit():
@@ -325,11 +325,13 @@ class Parser:
                 self.btable[braces.pop()] = i
             elif token == ',':
                 node = Node(T.Comma)
+            elif token == '=':
+                node = Node(T.Assign)
             else:
                 node = Node(None)
-            print(token)
+            # if debug: print(token)
             node.token = str(token)
-            print(node.token)
+            # if debug: print(node.token)
             node.ti = i
             tokens.append(node)
             i += 1
@@ -343,7 +345,7 @@ class Parser:
         """Returns an un-optimized AST"""
         if debug: print("tokenizer starting")
         self.orig_tokens = tokens = self.tokenizer(self.code)
-        print(tokens)
+        if debug: print(tokens)
         root = Root([])
         t = Ref()
         assert t.i == 0
@@ -351,18 +353,21 @@ class Parser:
         assert t.i == 1
         t.i -= 1
         while tokens[t.i].op != T.EOF:
-            print("loop step in Parser.parse")
+            if debug: print("loop step in Parser.parse")
             node = self.parse_statement(tokens, t)
-            print("node=",node)
-            print("node.expr=",node.expression)
-            print("after parse_statement")
+            if tokens[t.i].token == ';':
+                t.i += 1
+
+            if debug: print("node=",node)
+            # if debug: print("node.expr=",node.expression)
+            if debug: print("after parse_statement")
             root.statements.append(node)
-            print("after append")
+            if debug: print("after append")
         return root
 
     def parse_statement(self, tokens, t):
-        print("in parse_statement")
-        self.represent_codepos(tokens, t)
+        if debug: print("in parse_statement")
+        if debug: self.represent_codepos(tokens, t)
         if tokens[t.i].op == T.Return:
             node = tokens[t.i]
             t.i += 1
@@ -383,11 +388,11 @@ class Parser:
                 end = t.i + (self.btable[sti] - sti)
             else:
                 end = self.btable[sti]
-            self.represent_codepos(tokens, t)
-            print(t.i)
-            print(tokens[t.i].ti)
-            print(self.btable[tokens[t.i].ti])
-            print(end)
+            if debug: self.represent_codepos(tokens, t)
+            if debug: print(t.i)
+            if debug: print(tokens[t.i].ti)
+            if debug: print(self.btable[tokens[t.i].ti])
+            if debug: print(end)
             assert tokens[end].op == T.RBrace
             t.i += 1
             node = self.parse_block(tokens[t.i: end])
@@ -397,47 +402,47 @@ class Parser:
             return self.parse_expression(tokens, t)
 
     def parse_block(self, tokenslice):
-        print("block", tokenslice)
+        if debug: print("block", tokenslice)
         tokenslice.append(Node(T.EOF))
         t = Ref()
         bnode = BlockStatement()
         while tokenslice[t.i].op != T.EOF:
-            print("loop step in parse_block")
+            if debug: print("loop step in parse_block")
             node = self.parse_statement(tokenslice, t)
-            print(AstPrinter().tostring(node))
+            if debug: print(AstPrinter().tostring(node))
             bnode.statements.append(node)
-            print("tokenslice[t.i].op = ", tokenslice[t.i].op)
+            if debug: print("tokenslice[t.i].op = ", tokenslice[t.i].op)
         return bnode
 
     def parse_expression(self, tokens, t):
-        print("in parse_expression")
-        self.represent_codepos(tokens, t)
+        if debug: print("in parse_expression")
+        if debug: self.represent_codepos(tokens, t)
         if tokens[t.i].op == T.Function:
-            print("parsing function definition")
+            if debug: print("parsing function definition")
             node = tokens[t.i]
             assert isinstance(node, Function)
             t.i += 1 # advance past fn to lparen
             node.arguments = []
             if tokens[t.i+1].op == T.Ident:
-                self.represent_codepos(tokens, t)
+                if debug: self.represent_codepos(tokens, t)
                 t.i += 1 # advance to Identifier
-                self.represent_codepos(tokens, t)
+                if debug: self.represent_codepos(tokens, t)
                 node.arguments.append(tokens[t.i])
                 t.i += 1 # advance to comma
-                self.represent_codepos(tokens, t)
-                print(tokens[t.i].op)
+                if debug: self.represent_codepos(tokens, t)
+                if debug: print(tokens[t.i].op)
                 while tokens[t.i].op == T.Comma:
                     t.i += 1
-                    self.represent_codepos(tokens, t)
+                    if debug: self.represent_codepos(tokens, t)
                     node.arguments.append(tokens[t.i])
                     t.i += 1
-                    self.represent_codepos(tokens, t)
+                    if debug: self.represent_codepos(tokens, t)
             elif tokens[t.i+1].op == T.RParen:
                 t.i += 1 # advance to rparen
             else:
                 raise RuntimeError("Invalid Parameters")
 
-            self.represent_codepos(tokens, t)
+            if debug: self.represent_codepos(tokens, t)
             assert tokens[t.i].op == T.RParen, locals()
             t.i += 1 # advance to arrow
             assert tokens[t.i].op == T.Arrow
@@ -448,47 +453,44 @@ class Parser:
             return self.parse_assignment(tokens, t)
 
     def parse_assignment(self, tokens, t):
-        print("in parse_assignment")
-        self.represent_codepos(tokens, t)
+        if debug: print("in parse_assignment")
+        if debug: self.represent_codepos(tokens, t)
         lhs = self.parse_additive(tokens, t)
-        rhss = []
+        rhs = None
+        if debug: print("right before if ", tokens[t.i].op)
         if tokens[t.i].op == T.Assign:
-            t.i += 1 # advance to Expression start
-            rhss.append(self.parse_expression(tokens, t))
-            t.i += 1 # advance to next assign
-            while tokens[t.i].op == T.Assign:
-                t.i += 1
-                rhss.append(self.parse_expression(tokens, t.i))
-                t.i += 1
-        print("lhsrhss --------- ", AstPrinter().tostring(lhs), rhss)
-        if len(rhss) == 0:
-            print("lhspath")
+            if debug: print("took assign branch")
+            t.i += 1 # advance to "Expression" start which also subparses additional assignments
+            rhs = self.parse_expression(tokens, t)
+        if debug: print("lhsrhss --------- ", AstPrinter().tostring(lhs), rhs)
+        if rhs is None:
+            if debug: print("lhspath")
             return lhs
         else:
-            return Assignment(lhs, rhss)
+            return Assignment(lhs, rhs)
 
     def parse_additive(self, tokens, t):
-        print("in parse_additive")
-        self.represent_codepos(tokens, t)
+        if debug: print("in parse_additive")
+        if debug: self.represent_codepos(tokens, t)
         # nodes and ops zip together so that for each op[i], the subexpression is node[i] ~ op[i] ~ node[i+1]
         nodes = []
         ops = []
         nodes.append(self.parse_multiply(tokens, t))
-        # if isinstance(nodes[0], MultiExpressionNode): print(nodes[0].nodes)
+        # if isinstance(nodes[0], MultiExpressionNode): if debug: print(nodes[0].nodes)
         while tokens[t.i].op == T.Plus or tokens[t.i].op == T.Minus:
             ops.append(tokens[t.i].op)
             t.i += 1
             nodes.append(self.parse_multiply(tokens, t))
-        print("in additive ", nodes)
+        if debug: print("in additive ", nodes)
         if len(ops) == 0:
             return nodes[0]
         else:
-            print("MultiExpressionNode path in additive")
+            if debug: print("MultiExpressionNode path in additive")
             return MultiExpressionNode(nodes, ops)
 
     def parse_multiply(self, tokens, t):
-        print("in parse_multiply")
-        self.represent_codepos(tokens, t)
+        if debug: print("in parse_multiply")
+        if debug: self.represent_codepos(tokens, t)
         # nodes and ops zip together so that for each op[i], the subexpression is node[i] ~ op[i] ~ node[i+1]
         nodes = []
         ops = []
@@ -497,19 +499,19 @@ class Parser:
             ops.append(tokens[t.i].op)
             t.i += 1
             nodes.append(self.parse_postfix(tokens, t))
-        print("nodes =", nodes)
+        if debug: print("nodes =", nodes)
         for node in nodes:
             if node.op == T.Integer:
                 assert node.token != ""
-        print("in multiply,",nodes)
+        if debug: print("in multiply,",nodes)
         if len(ops) == 0:
             return nodes[0]
         else:
             return MultiExpressionNode(nodes, ops)
 
     def parse_postfix(self, tokens, t):
-        print("in parse_postfix")
-        self.represent_codepos(tokens, t)
+        if debug: print("in parse_postfix")
+        if debug: self.represent_codepos(tokens, t)
         terminal = self.parse_terminal(tokens, t)
         if tokens[t.i].op == T.LParen:
             args = []
@@ -520,16 +522,17 @@ class Parser:
                 args.append(self.parse_expression(tokens,t))
             assert tokens[t.i].op == T.RParen
             t.i += 1
-            print("fcall branch")
+            if debug: print("fcall branch")
             return FCall(terminal, args)
         else:
-            print("terminal = ",terminal)
+            if debug: print("terminal = ",terminal)
             return terminal
 
     def parse_terminal(self, tokens, t):
-        print("in parse_terminal")
-        self.represent_codepos(tokens, t)
+        if debug: print("in parse_terminal")
+        if debug: self.represent_codepos(tokens, t)
         if tokens[t.i].op == T.LParen:
+            t.i += 1
             node = self.parse_expression(tokens, t)
             assert tokens[t.i].op == T.RParen
             t.i += 1
@@ -537,18 +540,21 @@ class Parser:
         elif tokens[t.i].op == T.Ident:
             node = tokens[t.i]
             t.i += 1
-            print(node)
+            if debug: print(node)
             return node
         elif tokens[t.i].op == T.Integer:
             node = tokens[t.i]
             t.i += 1
             return node
+        elif tokens[t.i].token == ';':
+            return Terminator()
         else:
             print(locals())
             raise RuntimeError("Terminal Parsing Error")
 
     def __repr__(self):
         return "<Parser object>"
+
     def represent_codepos(self, tokens, t):
         s1 = " ".join(t.token for t in tokens)
         p = 0
@@ -560,16 +566,15 @@ class Parser:
 class Interpreter:
     def __init__(self, code):
         self.ast = Parser(code).parse()
-        self.gscope = {}
-        self.stack = []
+        self.globals = {}
+        self.scope = ChainMap(self.globals)
 
     def run(self):
-        pass
+        return 0
 
 def test_string(codestring):
     interpreter = Interpreter(codestring)
     print("ast =", AstPrinter().tostring(interpreter.ast))
-    print(type(interpreter.ast))
     print(interpreter.run())
 
 def main():
@@ -588,6 +593,16 @@ return b - 2 * 3""")
     test_string( # testing functions
 """let f = fn (a, b) -> { return 2 * a + b }
 return f(5, 69)""")
+    test_string( # testing multiple multiplications and stuff
+"""return 2 * 3 * 4 + 5 * 6 / (64 - 7*9)""")
+    test_string( # testing semicolons
+"""let x = 2 * 3;
+return 3 - x;
+""")
+#     test_string( # testing multiple assignment
+# """let x = 10*3
+# let y = 9
+# x = y = 3""")
 
 if __name__ == '__main__':
     main()
