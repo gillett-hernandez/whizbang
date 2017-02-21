@@ -4,11 +4,14 @@
 # @Author: Copyright (c) 2017-02-02 17:31:33 Gillett Hernandez
 # @Date:   2017-02-02 17:31:33
 # @Last Modified by:   Gillett Hernandez
-# @Last Modified time: 2017-02-18 22:40:50
+# @Last Modified time: 2017-02-20 23:27:07
 
 import re
 from enum import Enum
 from collections import OrderedDict, ChainMap
+from operator import add, sub, mul, truediv, mod
+div = truediv
+import copy
 
 global debug
 debug = False
@@ -89,6 +92,14 @@ class T(Enum):
     Assignment = "Assignment"
     Block      = "BlockStatement"
 
+optranslation = {
+    T.Plus: add,
+    T.Minus: sub,
+    T.Times: mul,
+    T.Divide: div,
+    T.Modulo: mod
+}
+
 opcodes = {
     "+": "AD",
     "-": "SU",
@@ -98,12 +109,15 @@ opcodes = {
     "arg": "AR"
 }
 
+def opfunc(op):
+    return [add, sub, mul, div, mod]["+-*/%".index(op.token)]
+
 class Node(object):
     __slots__ = ['op', 'token', 'ti']
-    def __init__(self, optype):
+    def __init__(self, optype, token="", ti=0):
         self.op = optype
-        self.token = ""
-        self.ti = 0
+        self.token = token
+        self.ti = ti
 
     # def __repr__(self):
     #     # print("node repr")
@@ -122,8 +136,12 @@ class Node(object):
     #     rstring = "{" + rstring + "}"
     #     return rstring
 
+    def run():
+        raise NotImplementedError()
+
     def __repr__(self):
         return "<{}>".format(self.token)
+
 
 class Root(Node):
     __slots__ = ["statements"]
@@ -133,47 +151,13 @@ class Root(Node):
     def visit(self, visitor):
         if isinstance(visitor, AstPrinter):
             return visitor.parenthesize(self.op, *self.statements)
+    def run(self, interpreter):
+        for statement in self.statements:
+            if isinstance(statement, ReturnStatement):
+                return statement.run(interpreter)
+            else:
+                statement.run(interpreter)
 
-class Constant(Node):
-    __slots__ = ['n']
-    def __init__(self, n=None):
-        super(Constant, self).__init__(T.Integer)
-        self.n = n
-    def visit(self, visitor):
-        if isinstance(visitor, AstPrinter):
-            return str(self.n)
-
-class Identifier(Node):
-    __slots__ = ['identifier']
-    def __init__(self, identifier=None):
-        super(Identifier, self).__init__(T.Ident)
-        self.identifier = identifier
-    def visit(self, visitor):
-        if isinstance(visitor, AstPrinter):
-            return visitor.parenthesize("ID", self.identifier)
-
-class Op(Node):
-    __slots__ = ['a', 'b']
-    def __init__(self, optype, a, b):
-        super(Op, self).__init__(optype)
-        self.a = a
-        self.b = b
-    def visit(self, visitor):
-        if isinstance(visitor, AstPrinter):
-            return visitor.parenthesize(self.op, self.a, self.b)
-
-# class Expression(Node):
-#     __slots__ = ['']
-
-class FCall(Node):
-    __slots__ = ['fn', 'args']
-    def __init__(self, fn=None, args=None):
-        super(FCall, self).__init__(T.FCALL)
-        self.fn = fn
-        self.args = args
-    def visit(self, visitor):
-        if isinstance(visitor, AstPrinter):
-            return visitor.parenthesize("FC", self.fn, *self.args)
 
 class ReturnStatement(Node):
     """Return statements return the expressions value to the callee's scope, or exit the program if used in the global scope"""
@@ -184,6 +168,8 @@ class ReturnStatement(Node):
     def visit(self, visitor):
         if isinstance(visitor, AstPrinter):
             return visitor.parenthesize("RT", self.expression)
+    def run(self, interpreter):
+        return self.expression.run(interpreter)
 
 class LetStatement(Node):
     """Let statements instantiate a variable and put it in the local scope"""
@@ -195,6 +181,30 @@ class LetStatement(Node):
     def visit(self, visitor):
         if isinstance(visitor, AstPrinter):
             return visitor.parenthesize("{} =".format(visitor.tostring(self.identifier)), self.expression)
+    def run(self, interpreter):
+        # -SCOPEMARK-
+        if debug: print("assigned {} = {}".format(self.identifier, self.expression))
+        if debug: print(interpreter.scope)
+        if debug: print(self.identifier)
+        interpreter.scope.maps[0][self.identifier.token] = self.expression.run(interpreter)
+
+class BlockStatement(Node):
+    """Block statements start a new scope"""
+    __slots__ = ['statements']
+    def __init__(self, statements=[]):
+        super(BlockStatement, self).__init__(T.Block)
+        self.statements = statements
+    def visit(self, visitor):
+        if isinstance(visitor, AstPrinter):
+            return visitor.parenthesize(self.op, *self.statements)
+    def run(self, interpreter, context=None):
+        # -SCOPEMARK-
+        if context is None:
+            interpreter.scope = interpreter.scope.new_child()
+        else:
+            interpreter.scope = context
+        for statement in self.statements:
+            statement.run(interpreter)
 
 class Assignment(Node):
     __slots__ = ['lhs', 'rhs']
@@ -205,6 +215,53 @@ class Assignment(Node):
     def visit(self, visitor):
         if isinstance(visitor, AstPrinter):
             return visitor.parenthesize(self.op, self.lhs, self.rhs)
+    def run(self, interpreter):
+        if debug: print("lhs, rhs = {}, {}".format(AstPrinter().tostring(self.lhs), AstPrinter().tostring(self.rhs)))
+        assert not isinstance(self.lhs, int), locals()
+        # -SCOPEMARK-
+        interpreter.scope.maps[0][self.lhs.token] = self.rhs.run(interpreter)
+        return interpreter.scope.maps[0][self.lhs.token]
+
+class Function(Node):
+    """functions start a new scope with every call, but the arguments are bound to the parameters"""
+    __slots__ = ['arguments', 'statements']
+    def __init__(self, arguments=None, statements=None):
+        super(Function, self).__init__(T.Function)
+        self.arguments = arguments
+        self.statements = statements
+        # self.internal_name = Function.getid()
+    def visit(self, visitor):
+        if debug: print("Function visitor called")
+        if isinstance(visitor, AstPrinter):
+            return visitor.parenthesize("F", self.arguments, self.statements)
+    def run(self, interpreter):
+        return self.frun
+    def frun(self, interpreter, args):
+        context = interpreter.scope.new_child()
+        # -SCOPEMARK-
+        for argn, argv in zip(self.arguments, args):
+            context.maps[0][argn.identifier] = argv.run(interpreter)
+        rval = self.statements.run(interpreter, context)
+        for statement in self.statements.statements:
+            if isinstance(statement, ReturnStatement):
+                return statement.run(interpreter)
+            statement.run(interpreter)
+
+
+class Op(Node):
+    __slots__ = ['a', 'b', 'opfunc']
+    def __init__(self, optype, a, b):
+        super(Op, self).__init__(optype)
+        self.a = a
+        self.b = b
+        self.opfunc = optranslation[optype]
+    def visit(self, visitor):
+        if isinstance(visitor, AstPrinter):
+            return visitor.parenthesize(self.op, self.a, self.b)
+    def run(self, interpreter):
+        if debug: print("running op, {}".format(self.token))
+        return self.opfunc(self.a.run(interpreter), self.b.run(interpreter))
+
 
 class MultiExpressionNode(Node):
     __slots__ = ['nodes', 'ops']
@@ -222,31 +279,72 @@ class MultiExpressionNode(Node):
             s += visitor.tostring(self.nodes[-1])
             s += ")"
             return s
+    def run(self, interpreter):
+        res = self.nodes[0].run(interpreter)
+        if debug: print("node 1 evals to ",res)
+        for node, op in zip(self.nodes[1:], self.ops):
+            if debug: print("node and op = {} and {}".format(node, op))
+            if debug: print(node, node.__slots__, type(node))
+            if hasattr(node, 'n'):
+                if debug: print(node.n)
+            if debug: print(op.opfunc, op.token)
+            if debug: print("res = ", res)
+            res = op.opfunc(res, node.run(interpreter))
+        if debug: print(res)
+        return res
 
-class BlockStatement(Node):
-    """Block statements start a new scope"""
-    __slots__ = ['statements']
-    def __init__(self, statements=[]):
-        super(BlockStatement, self).__init__(T.Block)
-        self.statements = statements
+# class Expression(Node):
+#     __slots__ = ['']
+
+
+class FCall(Node):
+    __slots__ = ['fn', 'args']
+    def __init__(self, fn=None, args=None):
+        super(FCall, self).__init__(T.FCALL)
+        self.fn = fn
+        self.args = args
     def visit(self, visitor):
         if isinstance(visitor, AstPrinter):
-            return visitor.parenthesize(self.op, *self.statements)
+            return visitor.parenthesize("FC", self.fn, *self.args)
+    def run(self, interpreter):
+        # -SCOPEMARK-
+        f = interpreter.scope.maps[0][self.fn.identifier]
+        return f(interpreter, self.args)
 
-class Function(Node):
-    """functions start a new scope with every call, but the arguments are bound to the parameters"""
-    __slots__ = ['arguments', 'statements']
-    def __init__(self, arguments=None, statements=None):
-        super(Function, self).__init__(T.Function)
-        self.arguments = arguments
-        self.statements = statements
-        # self.internal_name = Function.getid()
+
+class Constant(Node):
+    __slots__ = ['n']
+    def __init__(self, n=None):
+        super(Constant, self).__init__(T.Integer)
+        self.n = n
     def visit(self, visitor):
-        if debug: print("Function visitor called")
         if isinstance(visitor, AstPrinter):
-            return visitor.parenthesize("F", self.arguments, self.statements)
+            return str(self.n)
+    def run(self, interpreter):
+        return self.n
+
+
+class Identifier(Node):
+    __slots__ = ['identifier']
+    def __init__(self, identifier=None):
+        super(Identifier, self).__init__(T.Ident)
+        self.identifier = identifier
+    def visit(self, visitor):
+        if isinstance(visitor, AstPrinter):
+            return visitor.parenthesize("ID", self.identifier)
+    def run(self, interpreter):
+        # -SCOPEMARK-
+        if debug: print(interpreter.scope)
+        if debug: print(self.identifier)
+        try:
+            return interpreter.scope.maps[0][self.identifier]
+        except:
+            print(interpreter.scope)
+            raise
+
 
 Ref = type("Ref", (object,), {"i": 0, "__repr__":(lambda self: "<Ref i={}>".format(self.i) )})
+
 
 class AstPrinter:
     def tostring(self, expression):
@@ -270,6 +368,7 @@ class AstPrinter:
             s += self.tostring(node)
         s += ")"
         return s
+
 
 class Parser:
     def __init__(self, code):
@@ -309,7 +408,9 @@ class Parser:
             elif token == "->":
                 node = Node(T.Arrow)
             elif token in "+-*/%":
+                if debug: print("token = '{}'".format(token))
                 optype = [T.Plus, T.Minus, T.Times, T.Divide, T.Modulo]["+-*/%".index(token)]
+                if debug: print(optype)
                 node = Op(optype, None, None)
             elif token == '(':
                 node = Node(T.LParen)
@@ -478,7 +579,7 @@ class Parser:
         nodes.append(self.parse_multiply(tokens, t))
         # if isinstance(nodes[0], MultiExpressionNode): if debug: print(nodes[0].nodes)
         while tokens[t.i].op == T.Plus or tokens[t.i].op == T.Minus:
-            ops.append(tokens[t.i].op)
+            ops.append(tokens[t.i])
             t.i += 1
             nodes.append(self.parse_multiply(tokens, t))
         if debug: print("in additive ", nodes)
@@ -496,7 +597,7 @@ class Parser:
         ops = []
         nodes.append(self.parse_postfix(tokens, t))
         while tokens[t.i].op == T.Times or tokens[t.i].op == T.Divide:
-            ops.append(tokens[t.i].op)
+            ops.append(tokens[t.i])
             t.i += 1
             nodes.append(self.parse_postfix(tokens, t))
         if debug: print("nodes =", nodes)
@@ -546,8 +647,6 @@ class Parser:
             node = tokens[t.i]
             t.i += 1
             return node
-        elif tokens[t.i].token == ';':
-            return Terminator()
         else:
             print(locals())
             raise RuntimeError("Terminal Parsing Error")
@@ -563,6 +662,7 @@ class Parser:
         s2 = " "*p + "^"
         print(s1+"\n"+s2)
 
+
 class Interpreter:
     def __init__(self, code):
         self.ast = Parser(code).parse()
@@ -570,39 +670,63 @@ class Interpreter:
         self.scope = ChainMap(self.globals)
 
     def run(self):
-        return 0
+        ast = copy.deepcopy(self.ast)
+        # for each node
+        # node takes care of execution of subexpressions
+        # node.run(interpreter) returns result
+        # uses interpreter to access scopes
+        # for instance look at Root.run(interpreter) to see how it executes
+        # note: code for execution could be put in to visit with dynamic dispatch based on visitor class
+        return ast.run(self)
+
 
 def test_string(codestring):
     interpreter = Interpreter(codestring)
     print("ast =", AstPrinter().tostring(interpreter.ast))
-    print(interpreter.run())
+    return interpreter.run()
+
+def print_and_return_value(codestring, prefix="rval ="):
+    codestring = "> " + codestring
+    print(codestring.replace("\n", "\n> "))
+    rval = test_string(codestring)
+    print(prefix, rval)
+    print("\n")
+    return rval
 
 def main():
-    test_string("""return 2*3""")
-    test_string( # testing multiline statements
+    debug = False
+    assert 6 == print_and_return_value("""return 2*3""")
+    assert 10 == print_and_return_value( # testing multiline statements
 """let x = 10
-return x""")
-    test_string( # testing multiple let statements
+return x
+""")
+    assert 69 == print_and_return_value( # testing multiple let statements
 """let x = 10
 let b = 2 * x + 3
-return b * 3""")
-    test_string( # testing order of ops
+return b * 3
+""")
+    assert 17 == print_and_return_value( # testing order of ops
 """let x = 10
 let b = 3 + 2 * x
-return b - 2 * 3""")
-    test_string( # testing functions
+return b - 2 * 3
+""")
+    assert 79 == print_and_return_value( # testing functions
 """let f = fn (a, b) -> { return 2 * a + b }
-return f(5, 69)""")
-    test_string( # testing multiple multiplications and stuff
-"""return 2 * 3 * 4 + 5 * 6 / (64 - 7*9)""")
-    test_string( # testing semicolons
+return f(5, 69)
+""")
+    assert -6.0 == print_and_return_value( # testing multiple multiplications and stuff
+"""return 2 * 3 * 4 + 5 * 6 / (7*9 - 8*8)
+""")
+    assert -3 == print_and_return_value( # testing semicolons
 """let x = 2 * 3;
 return 3 - x;
 """)
-#     test_string( # testing multiple assignment
-# """let x = 10*3
-# let y = 9
-# x = y = 3""")
+    assert 9 == print_and_return_value( # testing multiple assignment
+"""let x = 10*3
+let y = 9
+x = y = 3
+return x*y
+""")
 
 if __name__ == '__main__':
     main()
