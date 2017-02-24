@@ -4,7 +4,7 @@
 # @Author: Copyright (c) 2017-02-02 17:31:33 Gillett Hernandez
 # @Date:   2017-02-02 17:31:33
 # @Last Modified by:   Gillett Hernandez
-# @Last Modified time: 2017-02-20 23:27:07
+# @Last Modified time: 2017-02-24 00:01:53
 
 import re
 from enum import Enum
@@ -139,6 +139,8 @@ class Node(object):
     def run():
         raise NotImplementedError()
 
+    def __str__(self):
+        return "<{}>".format(self.token)
     def __repr__(self):
         return "<{}>".format(self.token)
 
@@ -191,19 +193,27 @@ class LetStatement(Node):
 class BlockStatement(Node):
     """Block statements start a new scope"""
     __slots__ = ['statements']
-    def __init__(self, statements=[]):
+    def __init__(self, statements=None):
+        if statements == None:
+            statements = []
         super(BlockStatement, self).__init__(T.Block)
         self.statements = statements
+        if debug: print(self.statements)
     def visit(self, visitor):
         if isinstance(visitor, AstPrinter):
             return visitor.parenthesize(self.op, *self.statements)
-    def run(self, interpreter, context=None):
+    def run(self, interpreter, context={}):
         # -SCOPEMARK-
-        if context is None:
-            interpreter.scope = interpreter.scope.new_child()
-        else:
-            interpreter.scope = context
+        if debug: print("within block statement", self.statements)
+        interpreter.scope = interpreter.scope.new_child(context)
         for statement in self.statements:
+            if isinstance(statement, ReturnStatement):
+                rval = statement.run(interpreter)
+                # pop scope
+                if debug: print(rval, interpreter.scope)
+                interpreter.scope = interpreter.scope.parents
+                return rval
+            if debug: print(interpreter.scope)
             statement.run(interpreter)
 
 class Assignment(Node):
@@ -219,8 +229,8 @@ class Assignment(Node):
         if debug: print("lhs, rhs = {}, {}".format(AstPrinter().tostring(self.lhs), AstPrinter().tostring(self.rhs)))
         assert not isinstance(self.lhs, int), locals()
         # -SCOPEMARK-
-        interpreter.scope.maps[0][self.lhs.token] = self.rhs.run(interpreter)
-        return interpreter.scope.maps[0][self.lhs.token]
+        interpreter.scope[self.lhs.token] = self.rhs.run(interpreter)
+        return interpreter.scope[self.lhs.token]
 
 class Function(Node):
     """functions start a new scope with every call, but the arguments are bound to the parameters"""
@@ -230,22 +240,30 @@ class Function(Node):
         self.arguments = arguments
         self.statements = statements
         # self.internal_name = Function.getid()
+
     def visit(self, visitor):
         if debug: print("Function visitor called")
         if isinstance(visitor, AstPrinter):
             return visitor.parenthesize("F", self.arguments, self.statements)
     def run(self, interpreter):
+        if debug: print(self.frun)
+        if debug: print(self.statements)
         return self.frun
     def frun(self, interpreter, args):
-        context = interpreter.scope.new_child()
+        context = {}
         # -SCOPEMARK-
         for argn, argv in zip(self.arguments, args):
-            context.maps[0][argn.identifier] = argv.run(interpreter)
-        rval = self.statements.run(interpreter, context)
-        for statement in self.statements.statements:
-            if isinstance(statement, ReturnStatement):
-                return statement.run(interpreter)
-            statement.run(interpreter)
+            context[argn.identifier] = argv.run(interpreter)
+        if isinstance(self.statements, BlockStatement):
+            rval = self.statements.run(interpreter, context)
+        else:
+            interpreter.scope = interpreter.scope.new_child(context)
+            rval = self.statements.run(interpreter)
+        return rval
+        # for statement in self.statements.statements:
+        #     if isinstance(statement, ReturnStatement):
+        #         return statement.run(interpreter)
+        #     statement.run(interpreter)
 
 
 class Op(Node):
@@ -280,17 +298,21 @@ class MultiExpressionNode(Node):
             s += ")"
             return s
     def run(self, interpreter):
+        if debug: print("within multiexpression")
+        if debug: print(repr(self.nodes[0]))
         res = self.nodes[0].run(interpreter)
-        if debug: print("node 1 evals to ",res)
+        if debug: print("\tres = {}".format(res))
+        if debug: print("\tnode 1 evals to ",res)
         for node, op in zip(self.nodes[1:], self.ops):
-            if debug: print("node and op = {} and {}".format(node, op))
-            if debug: print(node, node.__slots__, type(node))
+            if debug: print("\tnode and op = {} and {}".format(node, op))
+            if debug: print("node slots and type", node.__slots__, type(node))
             if hasattr(node, 'n'):
-                if debug: print(node.n)
+                if debug: print("node n",node.n)
             if debug: print(op.opfunc, op.token)
             if debug: print("res = ", res)
             res = op.opfunc(res, node.run(interpreter))
         if debug: print(res)
+        if debug: print("leaving multiexpression")
         return res
 
 # class Expression(Node):
@@ -308,7 +330,8 @@ class FCall(Node):
             return visitor.parenthesize("FC", self.fn, *self.args)
     def run(self, interpreter):
         # -SCOPEMARK-
-        f = interpreter.scope.maps[0][self.fn.identifier]
+        if debug: print(interpreter.scope)
+        f = interpreter.scope[self.fn.identifier]
         return f(interpreter, self.args)
 
 
@@ -337,7 +360,7 @@ class Identifier(Node):
         if debug: print(interpreter.scope)
         if debug: print(self.identifier)
         try:
-            return interpreter.scope.maps[0][self.identifier]
+            return interpreter.scope[self.identifier]
         except:
             print(interpreter.scope)
             raise
@@ -350,7 +373,7 @@ class AstPrinter:
     def tostring(self, expression):
         """handles Root, Block, Multiexpression, anything with attribute 'n',\nanything with attributes ('a', 'b')"""
         if isinstance(expression, Node):
-            if debug: print(expression, type(expression), expression.op, expression.token)
+            # if debug: print(expression, type(expression), expression.op, expression.token)
             return expression.visit(self)
         elif isinstance(expression, (list, tuple)):
             return self.parenthesize("L", *expression)
@@ -389,10 +412,12 @@ class Parser:
         linestart = 0
         i = 0
         for retoken in token_iter:
+            if debug: print("\nstart loop")
             kind = retoken.lastgroup
             token = retoken.group(kind)
+            if debug: print(tokens)
             if debug: print(kind, token)
-            if token == '' or kind == "Whitespace":
+            if token == '' or kind == "Whitespace" or kind == "Comment":
                 continue
             elif token.isdigit():
                 node = Constant(int(token))
@@ -403,8 +428,11 @@ class Parser:
                     node = LetStatement(None)
                 elif token == "return":
                     node = ReturnStatement(None)
-                else:
+                elif kind == "Ident":
                     node = Identifier(token)
+            elif kind == "Ident":
+                if debug: print("ident branch")
+                node = Identifier(token)
             elif token == "->":
                 node = Node(T.Arrow)
             elif token in "+-*/%":
@@ -429,12 +457,15 @@ class Parser:
             elif token == '=':
                 node = Node(T.Assign)
             else:
+                if debug: print("----------------- else branch token={}".format(token))
                 node = Node(None)
-            # if debug: print(token)
+            if debug: print(node)
             node.token = str(token)
-            # if debug: print(node.token)
+            if debug: print(node.token)
             node.ti = i
+            if debug: print(tokens)
             tokens.append(node)
+            if debug: print(tokens)
             i += 1
         if debug: print(self.ptable)
         if debug: print(parens)
@@ -464,10 +495,12 @@ class Parser:
             if debug: print("after parse_statement")
             root.statements.append(node)
             if debug: print("after append")
+        if debug: print("\n\n\n"+"-"*10+"parse done"+"-"*10+"\n\n\n")
         return root
 
     def parse_statement(self, tokens, t):
         if debug: print("in parse_statement")
+        if debug and len(tokens) >= 41: print(tokens[41])
         if debug: self.represent_codepos(tokens, t)
         if tokens[t.i].op == T.Return:
             node = tokens[t.i]
@@ -497,7 +530,10 @@ class Parser:
             assert tokens[end].op == T.RBrace
             t.i += 1
             node = self.parse_block(tokens[t.i: end])
+            if debug: print("beginning, end = ", t.i, end)
             t.i = end+1
+            if debug: print(node.statements)
+            if debug: print("after parse block", AstPrinter().tostring(node))
             return node
         else:
             return self.parse_expression(tokens, t)
@@ -507,6 +543,8 @@ class Parser:
         tokenslice.append(Node(T.EOF))
         t = Ref()
         bnode = BlockStatement()
+        if debug: print(bnode.statements)
+        assert len(bnode.statements) == 0
         while tokenslice[t.i].op != T.EOF:
             if debug: print("loop step in parse_block")
             node = self.parse_statement(tokenslice, t)
@@ -517,6 +555,7 @@ class Parser:
 
     def parse_expression(self, tokens, t):
         if debug: print("in parse_expression")
+        # if debug and len(tokens) >= 41: print(tokens[41])
         if debug: self.represent_codepos(tokens, t)
         if tokens[t.i].op == T.Function:
             if debug: print("parsing function definition")
@@ -549,12 +588,16 @@ class Parser:
             assert tokens[t.i].op == T.Arrow
             t.i += 1 # advance to statement start
             node.statements = self.parse_statement(tokens, t)
+            if debug: print("node.op = {}".format(node.op))
+            node.op = T.Function
+            # node.op = T.Function
             return node
         else:
             return self.parse_assignment(tokens, t)
 
     def parse_assignment(self, tokens, t):
         if debug: print("in parse_assignment")
+        if debug and len(tokens) >= 41: print(tokens[41])
         if debug: self.represent_codepos(tokens, t)
         lhs = self.parse_additive(tokens, t)
         rhs = None
@@ -572,6 +615,7 @@ class Parser:
 
     def parse_additive(self, tokens, t):
         if debug: print("in parse_additive")
+        if debug and len(tokens) >= 41: print(tokens[41])
         if debug: self.represent_codepos(tokens, t)
         # nodes and ops zip together so that for each op[i], the subexpression is node[i] ~ op[i] ~ node[i+1]
         nodes = []
@@ -591,6 +635,7 @@ class Parser:
 
     def parse_multiply(self, tokens, t):
         if debug: print("in parse_multiply")
+        if debug and len(tokens) >= 41: print(tokens[41])
         if debug: self.represent_codepos(tokens, t)
         # nodes and ops zip together so that for each op[i], the subexpression is node[i] ~ op[i] ~ node[i+1]
         nodes = []
@@ -612,6 +657,7 @@ class Parser:
 
     def parse_postfix(self, tokens, t):
         if debug: print("in parse_postfix")
+        if debug and len(tokens) >= 41: print(tokens[41])
         if debug: self.represent_codepos(tokens, t)
         terminal = self.parse_terminal(tokens, t)
         if tokens[t.i].op == T.LParen:
@@ -630,7 +676,11 @@ class Parser:
             return terminal
 
     def parse_terminal(self, tokens, t):
+        if debug and len(tokens) >= 41: print(tokens[41])
         if debug: print("in parse_terminal")
+        if debug: print(tokens[t.i])
+        if debug: print(tokens[t.i].op)
+        if debug: print(type(tokens[t.i]))
         if debug: self.represent_codepos(tokens, t)
         if tokens[t.i].op == T.LParen:
             t.i += 1
@@ -648,7 +698,8 @@ class Parser:
             t.i += 1
             return node
         else:
-            print(locals())
+            print("\n".join("'{}': {}".format(k, v) for k, v in locals().items()))
+            print("\n".join("'{}': {}".format(k, v) for k, v in self.__dict__.items()))
             raise RuntimeError("Terminal Parsing Error")
 
     def __repr__(self):
@@ -686,14 +737,15 @@ def test_string(codestring):
     return interpreter.run()
 
 def print_and_return_value(codestring, prefix="rval ="):
+    rval = test_string(codestring)
     codestring = "> " + codestring
     print(codestring.replace("\n", "\n> "))
-    rval = test_string(codestring)
     print(prefix, rval)
     print("\n")
     return rval
 
 def main():
+    global debug
     debug = False
     assert 6 == print_and_return_value("""return 2*3""")
     assert 10 == print_and_return_value( # testing multiline statements
@@ -710,10 +762,21 @@ return b * 3
 let b = 3 + 2 * x
 return b - 2 * 3
 """)
-    assert 79 == print_and_return_value( # testing functions
-"""let f = fn (a, b) -> { return 2 * a + b }
-return f(5, 69)
+    assert 79-34 == print_and_return_value( # testing functions
+"""let f1 = fn (a, b) -> { return 2 * a + b }
+let f2 = fn (a, b, c) -> { return 3*a*b - c }
+return f1(5, 69) - f2(4,3,2)
 """)
+    assert 5+6+6+7 == print_and_return_value(
+"""
+let x = 5
+let foo = fn(x, y) ->
+    x + y
+/* Long function */
+let bar = fn(func, x) -> {
+    return func(x, x + 1) + func(x + 1, x + 2)
+}
+return bar(foo, x)""")
     assert -6.0 == print_and_return_value( # testing multiple multiplications and stuff
 """return 2 * 3 * 4 + 5 * 6 / (7*9 - 8*8)
 """)
