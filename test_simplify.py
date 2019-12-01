@@ -4,6 +4,7 @@ matcher = re.compile(r"[+-]?\d?[a-z]+")
 digitmatcher = re.compile(r"[+-]?\d?")
 vmatcher = re.compile(r"[a-z]+")
 
+
 def simplify(poly):
     print(poly)
     matches = list(re.findall(matcher, poly))
@@ -14,11 +15,11 @@ def simplify(poly):
     for g in groupings:
         d = digitmatcher.match(g)
         print(d)
-        if d is None or d.group(0) == '':
+        if d is None or d.group(0) == "":
             d = "1"
         else:
             d = d.group(0)
-        print("d1",d)
+        print("d1", d)
         if d == "+":
             d = "1"
         elif d == "-":
@@ -48,11 +49,11 @@ def simplify(poly):
         d = e[1]
         v = e[0]
         if d == 1:
-            d = '+'
+            d = "+"
         elif d > 1:
-            d = '+' + str(d)
+            d = "+" + str(d)
         elif d == -1:
-            d = '-'
+            d = "-"
         elif d < -1:
             d = str(d)
         else:
@@ -60,10 +61,11 @@ def simplify(poly):
         s += d + v
     return s
 
+
 # '4a+b-ab+4ac'
 # '4a+b-ab+4ac'
 
-print(simplify('-8fk+5kv-4yk+7kf-qk+yqv-3vqy+4ky+4kf+yvqkf'),'3fk-kq+5kv-2qvy+fkqvy')
+print(simplify("-8fk+5kv-4yk+7kf-qk+yqv-3vqy+4ky+4kf+yvqkf"), "3fk-kq+5kv-2qvy+fkqvy")
 
 # print(simplify("dc+dcba"),  "cd+abcd")
 
