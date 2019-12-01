@@ -1,0 +1,3 @@
+# lox contents
+
+print(1 * 10)
