@@ -96,7 +96,7 @@ OPR = "op"
 opcodes = {"+": "AD", "-": "SU", "*": "MU", "/": "DI", "imm": "IM", "arg": "AR"}
 
 
-class Node(object):
+class Node:
     __slots__ = ["op", "token", "ti"]
 
     def __init__(self, optype):
@@ -146,7 +146,10 @@ class Op(Node):
         self.b = b
 
 
-class Compiler(object):
+class Compiler:
+    def __repr__(self):
+        return f"<Compiler instance at 0x{id(self)}>"
+
     def compile(self, code):
         return self.pass4(self.pass3(self.pass2(self.pass1(code))))
 
@@ -154,11 +157,15 @@ class Compiler(object):
         """Turn a code string into an array of tokens.  Each token
            is either '[', ']', '(', ')', '+', '-', '*', '/', a variable
            name or a number (as a string)"""
-        token_iter = (m.group(0) for m in re.finditer(r"[-+*/()[\]]|[A-Za-z]+|\d+", code))
+        token_iter = (
+            m.group(0) for m in re.finditer(r"[-+*/()[\]]|[A-Za-z]+|\d+", code)
+        )
         tokens = []
         parens = []
         self.ptable = {}
-        for i, token in enumerate([int(tok) if tok.isdigit() else tok for tok in token_iter]):
+        for i, token in enumerate(
+            [int(tok) if tok.isdigit() else tok for tok in token_iter]
+        ):
             if isinstance(token, int):
                 node = Const(token)
             elif token.isalpha():
@@ -197,6 +204,7 @@ class Compiler(object):
         ast = self.parse_expression(tokens)
         if debug:
             print("ast parsing done")
+            print(ast)
         return ast
 
     def parse_arglist(self, tokens):
